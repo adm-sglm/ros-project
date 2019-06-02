@@ -132,3 +132,10 @@ When the user gives a move command, it is run by `actionlib` and this allows us 
 
 
 With this project I demonstrated getting input and sending commands to ROS also while keeping a state of events. I moved from the idea of sending an indoor robot to place(s) that is configured on the known map. From a user perspective only requirement is a down to known map instead of hardcoded points.
+
+### Videos
+---
+
+[Move without obstacles](https://streamable.com/41q54)\
+[Move with obstacles](https://streamable.com/d65in)\
+[Chain move](https://streamable.com/weydx)
