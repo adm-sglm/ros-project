@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Ros Panel</title>
+</head>
+<style>
+	#main-area {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+	.clmn {
+		flex: 1;
+	}
+	#click-popup {
+		position: absolute;
+		min-width: 250px;
+		border: 1px solid #ccc;
+		min-height: 150px;
+		background-color: #eee;
+		padding: 10px;
+		display: none;
+		flex-direction: column;
+		justify-content: space-between;
+	}
+	#click-popup.visible {
+		display: flex;
+	}
+	.inputs {
+		display: flex;
+		flex-direction: column;
+	}
+	.ifield {
+		flex: 1;
+		display: flex;
+		margin-bottom: 10px;
+		align-items: center;
+	}
+	.ifield label {
+		flex: 1;
+	}
+	.btn {
+		display: inline-block;
+		height: 38px;
+		padding: 0 30px;
+		color: #555;
+		text-align: center;
+		font-size: 11px;
+		font-weight: 600;
+		line-height: 38px;
+		letter-spacing: .1rem;
+		text-transform: uppercase;
+		text-decoration: none;
+		white-space: nowrap;
+		background-color: #fff;
+		border-radius: 4px;
+		border: 1px solid #bbb;
+		cursor: pointer;
+		box-sizing: border-box;
+		/* taken from skeleton css */
+	}
+	.btn.btn-primary {
+		background-color: #33C3F0;
+		color: #fff;
+	}
+	.btn.btn-warn {
+		background-color: #ec971f;
+	}
+</style>
+<body>
+	<div id="click-popup" class="">
+		<div class="inputs">
+			<div class="ifield">
+				<label>Place Name:</label>
+				<input name="place_name" />
+			</div>
+			<div class="ifield">
+				<label>Angle (degree):</label>
+				<input name="angle" />
+			</div>
+		</div>
+		<div>
+			<a href="#" id="btn-popup-close" class="btn btn-warn">Close</a>
+			<a href="#" id="btn-popup-setinitial" class="btn">Set Initial Pose</a>
+			<a href="#" id="btn-popup-go" class="btn btn-std">Go</a>
+			<a href="#" id="btn-popup-save" class="btn btn-primary">Save</a>			
+		</div>		
+	</div>
+	<div id="main-area">
+		<div class="clmn" id="controls">
+			<a href="#">Set Initial Pose</a>
+		</div>		
+		<div class="clmn">			
+			<canvas id="canvas" style="border: 1px solid #111;" />
+		</div>
+		<div class="clmn" id="orders">
+			<div id="saved-places">
+				<h3>Saved Places</h3>
+				<ul id="place-list">
+
+				</ul>
+				<a href="#" id="btn-popup-go" class="btn btn-std">Go</a>
+			</div>
+		</div>
+	</div>
+	<script type="text/javascript" src="../static/jquery-3.4.0.min.js"></script>
+	<script src="../static/socket.io.min.js"></script>	
+	<script type="text/javascript">
+		location_data = new Map();		
+	</script>
+	<script type="text/javascript">
+		function point_to_pixel(x,y,resolution) {			
+			resolution = resolution.toPrecision(2);
+			return {x: Math.round(-x/resolution),y:  Math.round(-y/resolution)}
+		}
+		function pixel_to_point(clickpoint,centerpoint,resolution) {
+			const newx = (clickpoint.x - centerpoint.x) * resolution;
+			const newy = (clickpoint.y - centerpoint.y) * resolution;
+
+			// resolution = resolution.toPrecision(2);
+			// const rx = -clickpoint.x*resolution;
+			// const ry = -clickpoint.y*resolution;
+			return {x: newx,y:  newy}
+		}		
+		function locate_pos(x,y,relativex,relativey,resolution) {
+			const new_x = relativex - x;
+			const new_y = relativey - y;					
+			
+			return point_to_pixel(new_x,new_y,resolution);
+		}
+	</script>			
+	<script type="text/javascript">
+		const url = window.location.href;
+		$(function() {			
+			$(".action-btn").click((e) => {
+				e.preventDefault();
+				const targetUrl = e.target.href;
+
+				$.get(targetUrl,function(data) {
+					console.log(data);
+				});
+			});
+			$("#btn_go").click((e) => {
+				e.preventDefault();			
+
+				const lct_key = $('input[name="location"]:checked').val();				
+				const loc_data = location_data.get(lct_key);
+
+				fetch(url + "cmd/run",{
+					method: 'post',
+				    headers: {
+				      "Content-type": "application/json"
+				    },
+				    body: JSON.stringify({location: loc_data})
+				}).then((data) => {
+					console.log('data',data)
+				})
+			});
+			$('#map').click(function (e) {
+				e.preventDefault();
+				var x = e.pageX - this.offsetLeft;
+					var y = e.pageY - this.offsetTop;
+					console.log('x',x);
+					console.log('y',y);
+			});
+		});
+	</script>	
+	<script type="text/javascript">
+		var ctx = document.getElementById('canvas').getContext('2d');
+		var position = null;
+		var marker_pos = null;
+		var map_data = null;
+		var map_img = null;
+		var last_clicked_pos = null;
+
+		function draw_center(ctr,x,y) {
+			ctr.beginPath();
+			ctr.fillStyle = "#00FF00";
+			ctr.fillRect(x, y, 10, 10);
+		}
+
+		function draw_marker(ctr,x,y) {			
+			ctr.beginPath();
+			ctr.fillStyle = "#0000FF";
+			ctr.fillRect(x, y, 6, 6);	
+		}
+
+		function redraw() {			
+			ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+			
+			if (!position) {
+				console.log('no position yet');
+				return;
+			}
+			ctx.drawImage(map_img, 0, 0);			
+			// const x = map_data.pos.x + position.pos.x;
+			// const y = map_data.pos.x + position.pos.y;			
+
+			// const pixel_points = point_to_pixel(x,y,map_data.resolution);
+			
+			// draw_center(ctx,pixel_points.x,pixel_points.y);
+			
+			const new_pos = locate_pos(position.pos.x,position.pos.y,map_data.pos.x,map_data.pos.y,map_data.resolution);
+			draw_marker(ctx,new_pos.x,new_pos.y);
+		}
+				
+
+		function render_image(imsrc,imdata) {
+			return new Promise((resolve,rej) => {
+				canvas.width = imdata.width;
+				canvas.height = imdata.height;
+
+				var img = new Image();
+				
+				img.onload = function() {
+					map_img = img;
+					// ctx.drawImage(img, 0, 0);
+					resolve();
+				};
+				img.src = imsrc;
+			});
+		}
+		fetch(url + "cmd/map",{
+			method: 'post',
+		    headers: {
+		      "Content-type": "application/json"
+		    }		    
+		}).then((resp) => {			
+			resp.json().then((data) => {				
+				render_image(data.mapimgfile,data).then(() => {
+					map_data = data;
+					var centerpx = point_to_pixel(data.pos.x,data.pos.y,data.resolution);
+					// draw_center(ctx,centerpx.x,centerpx.y);					
+
+					var socket = io.connect(url);						
+					socket.on('pos-refresh',(data) => {
+						// console.log(data);
+						position = data;
+						//working piece
+						// var new_x = map_data.pos.x - position.pos.x;
+						// var new_y = map_data.pos.y - position.pos.y;
+						
+						// var new_location = point_to_pixel(new_x,new_y,map_data.resolution);
+
+						//const new_pos = locate_pos(position.pos.x,position.pos.y,map_data.pos.x,map_data.pos.y,map_data.resolution);
+
+						//draw_marker(ctx,new_pos.x,new_pos.y);
+						if (map_data) {
+							redraw();
+						}
+					});
+					socket.on('goal_status',(data) => {
+						console.log('goal status',data);
+					});
+
+					$('#canvas').click(function(e) {
+						e.preventDefault();
+						
+						$('#click-popup').addClass('visible');
+						$('#click-popup').css({top: e.pageY,left: e.pageX});
+						var x = e.pageX - this.offsetLeft;
+						var y = e.pageY - this.offsetTop;
+						
+						const target_point = pixel_to_point({x: x,y: y},centerpx,data.resolution);
+						last_clicked_pos = target_point;
+						// // draw_marker(ctx,x,y);
+						// marker_pos = {x: x,y: y};
+
+						// fetch(url + "cmd/run",{
+						// 	method: 'post',
+						// 		headers: {
+						// 			"Content-type": "application/json"
+						// 		},
+						// 		body: JSON.stringify({location: {x: target_point.x,y: target_point.y,z: 0.0,angle: 'pi/180*270'}})
+						// }).then((data) => {
+						// 	console.log('data',data)
+						// })
+					});									
+
+					$('#btn-popup-setinitial').click((e) => {
+						e.preventDefault();
+						
+						const gurl = new URL(url + "cmd/setinit");
+						
+						const angle = $("input[name='angle']").val();
+						gurl.searchParams.append("x",last_clicked_pos.x);
+						gurl.searchParams.append("y",last_clicked_pos.y);
+						gurl.searchParams.append("ang",angle);
+
+						fetch(gurl).then((resp) => {
+							$('#click-popup').removeClass('visible');
+						});
+					});
+					$('#btn-popup-go').click((e) => {
+						e.preventDefault();
+
+						const angle = $("input[name='angle']").val();
+
+						fetch(url + "cmd/run",{
+							method: 'post',
+								headers: {
+									"Content-type": "application/json"
+								},
+								body: JSON.stringify({location: {x: last_clicked_pos.x,y: last_clicked_pos.y,z: 0.0,angle: angle}})
+						}).then((data) => {							
+							$('#click-popup').removeClass('visible');
+						})
+					});
+
+					$('#btn-popup-save').click((e) => {
+						const angle = $("input[name='angle']").val();
+						const place_name = $("input[name='place_name']").val();
+
+						const li = document.createElement('li');
+						li.dataset.x = last_clicked_pos.x;
+						li.dataset.y = last_clicked_pos.y;
+						li.dataset.angle = angle;
+						li.dataset.placename = place_name;
+						li.innerText = place_name;
+
+						$('#place-list').append(li);
+						location_data.set(place_name, {x: last_clicked_pos.x,y: last_clicked_pos.y,z: 0.0,angle: angle});
+						$('#click-popup').removeClass('visible');
+					});
+				});
+			});
+		})
+	</script>
+	<script>
+		$(() => {
+			$('#btn-popup-close').click((e) => {
+				e.preventDefault();
+				$('#click-popup').removeClass('visible');
+			});			
+		});
+	</script>
+	<script type="text/javascript">
+		$(function(){
+			$("#getpos").click((e) => {
+				fetch(url + "cmd/pos",{
+					method: 'get'
+				}).then((data) => {
+					console.log('get_pos data',data)
+				})
+			});			
+		});
+	</script>
+</body>
+</html>
