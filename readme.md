@@ -129,3 +129,6 @@ One final feature of the application is chainable move commands. This behaviour 
 
 
 When the user gives a move command, it is run by `actionlib` and this allows us to read the state of the move base command using get_state() method. Since there is no direct access to rospy from the web side, I had to use the same approach as the `amcl_pose` information and push the data into redis and websockets. With this method saved places list acts like a chain move command; application start with the first move command and waits until a `GoalStatus` command arrives through the websocket which carries the same place name and advances to next move command in queue.
+
+
+With this project I demonstrated getting input and sending commands to ROS also while keeping a state of events. I moved from the idea of sending an indoor robot to place(s) that is configured on the known map. From a user perspective only requirement is a down to known map instead of hardcoded points.
